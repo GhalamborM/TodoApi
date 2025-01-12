@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace Todo.Web.Server;
 
@@ -57,13 +58,13 @@ public static class AuthApi
             // This name maps to the registered authentication scheme names in AuthenticationExtensions.cs
             return Results.Challenge(
                 properties: new() { RedirectUri = $"/auth/signin/{provider}" },
-                authenticationSchemes: new[] { provider });
+                authenticationSchemes: [provider]);
         });
 
-        group.MapGet("signin/{provider}", async (string provider, AuthClient client, HttpContext context) =>
+        group.MapGet("signin/{provider}", async (string provider, AuthClient client, HttpContext context, IDataProtectionProvider dataProtectionProvider) =>
         {
             // Grab the login information from the external login dance
-            var result = await context.AuthenticateAsync(AuthenticatonSchemes.ExternalScheme);
+            var result = await context.AuthenticateAsync(AuthenticationSchemes.ExternalScheme);
 
             if (result.Succeeded)
             {
@@ -75,7 +76,10 @@ public static class AuthApi
                 // for now we'll prefer the email address
                 var name = (principal.FindFirstValue(ClaimTypes.Email) ?? principal.Identity?.Name)!;
 
-                var token = await client.GetOrCreateUserAsync(provider, new() { Username = name, ProviderKey = id });
+                // Protect the user id so it for transport
+                var protector = dataProtectionProvider.CreateProtector(provider);
+
+                var token = await client.GetOrCreateUserAsync(provider, new() { Username = name, ProviderKey = protector.Protect(id) });
 
                 if (token is not null)
                 {
@@ -85,7 +89,7 @@ public static class AuthApi
             }
 
             // Delete the external cookie
-            await context.SignOutAsync(AuthenticatonSchemes.ExternalScheme);
+            await context.SignOutAsync(AuthenticationSchemes.ExternalScheme);
 
             // TODO: Handle the failure somehow
 
@@ -97,7 +101,7 @@ public static class AuthApi
 
     private static IResult SignIn(UserInfo userInfo, string token)
     {
-        return SignIn(userInfo.Username, userInfo.Username, token, providerName: null);
+        return SignIn(userInfo.Email, userInfo.Email, token, providerName: null);
     }
 
     private static IResult SignIn(string userId, string userName, string token, string? providerName)
@@ -114,13 +118,9 @@ public static class AuthApi
             properties.SetExternalProvider(providerName);
         }
 
-        var tokens = new[]
-        {
+        properties.StoreTokens([
             new AuthenticationToken { Name = TokenNames.AccessToken, Value = token }
-        };
-
-        properties.StoreTokens(tokens);
-
+        ]);
 
         return Results.SignIn(new ClaimsPrincipal(identity),
             properties: properties,

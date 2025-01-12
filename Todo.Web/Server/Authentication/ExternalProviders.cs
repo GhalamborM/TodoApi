@@ -3,15 +3,9 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace Todo.Web.Server;
 
-public class ExternalProviders
+public class ExternalProviders(IAuthenticationSchemeProvider schemeProvider)
 {
-    private readonly IAuthenticationSchemeProvider _schemeProvider;
     private Task<string[]>? _providerNames;
-
-    public ExternalProviders(IAuthenticationSchemeProvider schemeProvider)
-    {
-        _schemeProvider = schemeProvider;
-    }
 
     public Task<string[]> GetProviderNamesAsync()
     {
@@ -22,21 +16,21 @@ public class ExternalProviders
     {
         List<string>? providerNames = null;
 
-        var schemes = await _schemeProvider.GetAllSchemesAsync();
+        var schemes = await schemeProvider.GetAllSchemesAsync();
 
         foreach (var s in schemes)
         {
             // We're assuming all schemes that aren't cookies are social
             if (s.Name == CookieAuthenticationDefaults.AuthenticationScheme ||
-                s.Name == AuthenticatonSchemes.ExternalScheme)
+                s.Name == AuthenticationSchemes.ExternalScheme)
             {
                 continue;
             }
 
-            providerNames ??= new();
+            providerNames ??= [];
             providerNames.Add(s.Name);
         }
 
-        return providerNames?.ToArray() ?? Array.Empty<string>();
+        return providerNames?.ToArray() ?? [];
     }
 }
